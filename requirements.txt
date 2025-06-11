@@ -1,5 +1,5 @@
 streamlit
 pandas
-st-aggrid
+st-aggrid==1.44.1
 pillow
 requests
