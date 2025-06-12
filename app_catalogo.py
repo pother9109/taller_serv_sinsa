@@ -10,6 +10,20 @@ import zipfile
 # Configuración de la página
 st.set_page_config(page_title="Taller de Servicio", layout="wide")
 
+# Estilos personalizados para botones (verde claro)
+st.markdown(
+    """
+    <style>
+    div.stButton > button {
+        background-color: #009E47;
+        color: white;
+        border-radius: 4px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 # URL directa de descarga del ZIP en Google Drive
 def get_drive_download_url(file_id):
     return f"https://drive.google.com/uc?export=download&id={file_id}"
@@ -24,12 +38,10 @@ def descargar_y_extraer_excel(zip_url=ZIP_URL, excel_name=EXCEL_NAME):
     Descarga el archivo ZIP desde Google Drive, lo extrae en memoria,
     y lee el Excel especificado dentro.
     """
-    # Descargar ZIP
     response = requests.get(zip_url)
     response.raise_for_status()
     zip_bytes = io.BytesIO(response.content)
 
-    # Extraer con zipfile
     with zipfile.ZipFile(zip_bytes) as zf:
         if excel_name in zf.namelist():
             data = zf.read(excel_name)
@@ -49,13 +61,23 @@ logo = Image.open("logo_taller.png")
 ico_admin = Image.open("ico_admin.png")
 ico_consulta = Image.open("ico_consulta.png")
 
-# Cabecera
-st.image(logo, width=80)
-st.markdown(
-    """<h1 style='text-align:center; color:#333;'>Taller de Servicio</h1>
-    <h4 style='text-align:center; color:#777;'>Silva Internacional S.A</h4>""",
-    unsafe_allow_html=True
-)
+# Cabecera con logo, título y botón de actualización
+e1, e2, e3 = st.columns([1, 4, 1])
+with e1:
+    st.image(logo, width=80)
+with e2:
+    st.markdown(
+        """<h1 style='text-align:left; color:#fff; margin-bottom:0;'>Taller de Servicio</h1>""",
+        unsafe_allow_html=True
+    )
+    st.markdown(
+        """<h4 style='text-align:left; color:#fff; margin-top:0;'>Silva Internacional S.A</h4>""",
+        unsafe_allow_html=True
+    )
+with e3:
+    if st.button("Actualizar datos"):
+        st.cache_data.clear()
+        st.experimental_rerun()
 
 # Estado de página
 pagina = st.session_state.get("pagina", "inicio")
@@ -84,7 +106,6 @@ elif pagina == "consulta":
         "<h5 style='color:darkorange;'>Sección de consulta de catálogo de productos y repuestos</h5>",
         unsafe_allow_html=True
     )
-
     try:
         productos_df, repuestos_df = descargar_y_extraer_excel()
     except Exception as e:
@@ -97,7 +118,7 @@ elif pagina == "consulta":
     with col1:
         busqueda_prod = st.text_input("Buscar producto")
     with col2:
-        criterio_prod = st.radio("Buscar por:", ["Código", "Descripción", "Numero de Parte"], horizontal=True)
+        criterio_prod = st.radio("Buscar por:", ["Descripción", "Proveedor", "Código", "Numero de Parte", "Tipo de producto"], horizontal=True)
 
     def filtrar_tabla(df, criterio, texto, columnas):
         if not texto:
@@ -132,12 +153,12 @@ elif pagina == "consulta":
             link_ficha = fila.get("Link Ficha", "")
             if pd.notna(link_ficha):
                 url = quote(link_ficha, safe=":/%?=&")
-                st.markdown(f"[📄 Ver Ficha Técnica]({url})", unsafe_allow_html=True)
+                st.markdown(f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">📄 Ver Ficha Técnica</button></a>', unsafe_allow_html=True)
         with col_diagrama:
             link_diagrama = fila.get("Link Diagrama", "")
             if pd.notna(link_diagrama):
                 url = quote(link_diagrama, safe=":/%?=&")
-                st.markdown(f"[🗺️ Ver Diagrama]({url})", unsafe_allow_html=True)
+                st.markdown(f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">🗺️ Ver Diagrama</button></a>', unsafe_allow_html=True)
 
         # Mostrar imagen directamente con Streamlit
         link_imagen = fila.get("Imagen(link)", "")
@@ -150,7 +171,7 @@ elif pagina == "consulta":
     with col3:
         busqueda_rep = st.text_input("Buscar repuesto")
     with col4:
-        criterio_rep = st.radio("Buscar por:", ["Numero de parte del repuesto", "Descripción Repuesto"], horizontal=True)
+        criterio_rep = st.radio("Buscar por:", ["Proveedor", "Descripción Repuesto"], horizontal=True)
 
     if sku is not None:
         repuestos = repuestos_df[repuestos_df.get("Código") == sku].copy()
