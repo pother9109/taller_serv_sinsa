@@ -10,11 +10,15 @@ import zipfile
 # Configuración de la página
 st.set_page_config(page_title="Taller de Servicio", layout="wide")
 
+# Inicializar filtro de proveedor
+if "filtro_proveedor" not in st.session_state:
+    st.session_state.filtro_proveedor = None
+
 # Estilos personalizados para botones (verde claro)
 st.markdown(
     """
     <style>
-    div.stButton > button {
+    div.stButton > button, div.stDownloadButton > button {
         background-color: #009E47;
         color: white;
         border-radius: 4px;
@@ -56,7 +60,7 @@ def descargar_y_extraer_excel(zip_url=ZIP_URL, excel_name=EXCEL_NAME):
     repuestos_df = xls.parse(xls.sheet_names[0])
     return productos_df, repuestos_df
 
-# Carga de imágenes de logo e íconos
+# Carga de imágenes
 logo = Image.open("logo_taller.png")
 ico_admin = Image.open("ico_admin.png")
 ico_consulta = Image.open("ico_consulta.png")
@@ -106,29 +110,35 @@ elif pagina == "consulta":
         "<h5 style='color:darkorange;'>Sección de consulta de catálogo de productos y repuestos</h5>",
         unsafe_allow_html=True
     )
-    try:
-        productos_df, repuestos_df = descargar_y_extraer_excel()
-    except Exception as e:
-        st.error(f"Error al descargar o leer los datos: {e}")
-        st.stop()
+    productos_df, repuestos_df = descargar_y_extraer_excel()
 
-    # --- Catálogo de productos ---
+    # Filtro por Proveedor
+    proveedores = sorted(productos_df['Proveedor'].dropna().unique())
+    opciones = ['Todos'] + proveedores
+    cols = st.columns(len(opciones))
+    for idx, prov in enumerate(opciones):
+        if cols[idx].button(prov):
+            st.session_state.filtro_proveedor = None if prov == 'Todos' else prov
+    filtro = st.session_state.filtro_proveedor
+    df_base = productos_df if not filtro else productos_df[productos_df['Proveedor'] == filtro]
+
+    # Catálogo de productos
     st.subheader("Catálogo de productos")
     col1, col2 = st.columns([3, 1])
     with col1:
         busqueda_prod = st.text_input("Buscar producto")
     with col2:
-        criterio_prod = st.radio("Buscar por:", ["Descripción", "Proveedor", "Código", "Numero de Parte", "Tipo de producto"], horizontal=True)
-
+        criterio_prod = st.radio(
+            "Buscar por:",
+            ["Proveedor", "Descripción", "Código", "Numero de Parte", "Tipo de producto"],
+            horizontal=True
+        )
     def filtrar_tabla(df, criterio, texto, columnas):
         if not texto:
             return df
         texto = texto.lower()
-        if criterio in columnas:
-            return df[df[criterio].astype(str).str.lower().str.contains(texto)]
-        return df
-
-    productos_filtrados = filtrar_tabla(productos_df, criterio_prod, busqueda_prod, productos_df.columns)
+        return df[df[criterio].astype(str).str.lower().str.contains(texto)] if criterio in columnas else df
+    productos_filtrados = filtrar_tabla(df_base, criterio_prod, busqueda_prod, df_base.columns)
 
     gb = GridOptionsBuilder.from_dataframe(productos_filtrados)
     gb.configure_selection(selection_mode="single", use_checkbox=True)
@@ -140,44 +150,67 @@ elif pagina == "consulta":
         theme="material"
     )
 
-    # Manejo de selección
+    # Manejo de selección y botones
     selected_rows = grid_response.get("selected_rows", [])
     df_selected = pd.DataFrame(selected_rows)
     sku = None
     if not df_selected.empty:
         fila = df_selected.iloc[0]
         sku = fila.get("Código")
-
-        col_ficha, col_diagrama = st.columns(2)
+        col_ficha, col_diagrama, col_descargar = st.columns(3)
         with col_ficha:
             link_ficha = fila.get("Link Ficha", "")
             if pd.notna(link_ficha):
                 url = quote(link_ficha, safe=":/%?=&")
-                st.markdown(f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">📄 Ver Ficha Técnica</button></a>', unsafe_allow_html=True)
+                st.markdown(
+                    f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">📄 Ver Ficha Técnica</button></a>', unsafe_allow_html=True
+                )
         with col_diagrama:
             link_diagrama = fila.get("Link Diagrama", "")
             if pd.notna(link_diagrama):
                 url = quote(link_diagrama, safe=":/%?=&")
-                st.markdown(f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">🗺️ Ver Diagrama</button></a>', unsafe_allow_html=True)
-
-        # Mostrar imagen directamente con Streamlit
+                st.markdown(
+                    f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">🗺️ Ver Diagrama</button></a>', unsafe_allow_html=True
+                )
+        with col_descargar:
+            # Preparar lista de repuestos para el SKU
+            df_rep = repuestos_df[repuestos_df['Código'].astype(str) == str(sku)]
+            cols_download = [
+                "Numero de parte del repuesto",
+                "Código Repuesto",
+                "Parte en Diagrama",
+                "Cantidad de dias para gestion",
+                "Descripción Repuesto",
+                "Descripción Prov",
+                "Tipo de repuesto",
+                "Modelo"
+            ]
+            df_down = df_rep[cols_download] if all(c in df_rep.columns for c in cols_download) else df_rep
+            buf = io.BytesIO()
+            with pd.ExcelWriter(buf, engine='openpyxl') as writer:
+                df_down.to_excel(writer, index=False, sheet_name='Repuestos')
+            buf.seek(0)
+            st.download_button(
+                label="Descargar repuestos",
+                data=buf,
+                file_name=f"repuestos_{sku}.xlsx",
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
         link_imagen = fila.get("Imagen(link)", "")
         if link_imagen and str(link_imagen).strip():
             st.image(link_imagen, width=600, caption="Imagen del producto")
 
-    # --- Catálogo de repuestos ---
+    # Catálogo de repuestos completo
     st.subheader("Catálogo de repuestos")
     col3, col4 = st.columns([3, 1])
     with col3:
         busqueda_rep = st.text_input("Buscar repuesto")
     with col4:
-        criterio_rep = st.radio("Buscar por:", ["Proveedor", "Descripción Repuesto"], horizontal=True)
-
-    if sku is not None:
-        repuestos = repuestos_df[repuestos_df.get("Código") == sku].copy()
-    else:
-        repuestos = repuestos_df.copy()
-
+        criterio_rep = st.radio(
+            "Buscar por:",
+            ["Proveedor", "Descripcion Repuesto"], horizontal=True
+        )
+    repuestos = repuestos_df[repuestos_df['Código'] == sku].copy() if sku else repuestos_df.copy()
     repuestos_filtrados = filtrar_tabla(repuestos, criterio_rep, busqueda_rep, repuestos_df.columns)
     st.dataframe(repuestos_filtrados, height=250)
 
