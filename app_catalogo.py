@@ -208,7 +208,7 @@ elif pagina == "consulta":
     with col4:
         criterio_rep = st.radio(
             "Buscar por:",
-            ["Proveedor", "Descripcion Repuesto"], horizontal=True
+            ["Descripción Prov", "Numero de parte del repuesto", "Código Repuesto"], horizontal=True
         )
     repuestos = repuestos_df[repuestos_df['Código'] == sku].copy() if sku else repuestos_df.copy()
     repuestos_filtrados = filtrar_tabla(repuestos, criterio_rep, busqueda_rep, repuestos_df.columns)
