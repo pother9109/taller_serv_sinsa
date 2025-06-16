@@ -1,6 +1,7 @@
 streamlit
 pandas
 streamlit-aggrid
-pillow
+Pillow
 requests
+reportlab
 openpyxl
