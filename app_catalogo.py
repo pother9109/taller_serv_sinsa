@@ -6,6 +6,7 @@ from urllib.parse import quote
 import requests
 import io
 import zipfile
+from reportlab.pdfgen import canvas
 
 # Configuración de la página
 st.set_page_config(page_title="Taller de Servicio", layout="wide")
@@ -61,7 +62,8 @@ def descargar_y_extraer_excel(zip_url=ZIP_URL, excel_name=EXCEL_NAME):
     return productos_df, repuestos_df
 
 # Carga de imágenes
-logo = Image.open("logo_taller.png")
+logo_path = "logo_taller.png"
+logo = Image.open(logo_path)
 ico_admin = Image.open("ico_admin.png")
 ico_consulta = Image.open("ico_consulta.png")
 
@@ -150,7 +152,6 @@ elif pagina == "consulta":
         theme="material"
     )
 
-    # Manejo de selección y botones
     selected_rows = grid_response.get("selected_rows", [])
     df_selected = pd.DataFrame(selected_rows)
     sku = None
@@ -173,22 +174,10 @@ elif pagina == "consulta":
                     f'<a href="{url}" target="_blank"><button style="background-color:#009E47;color:white;border:none;padding:6px 12px;border-radius:4px;">🗺️ Ver Diagrama</button></a>', unsafe_allow_html=True
                 )
         with col_descargar:
-            # Preparar lista de repuestos para el SKU
             df_rep = repuestos_df[repuestos_df['Código'].astype(str) == str(sku)]
-            cols_download = [
-                "Numero de parte del repuesto",
-                "Código Repuesto",
-                "Parte en Diagrama",
-                "Cantidad de dias para gestion",
-                "Descripción Repuesto",
-                "Descripción Prov",
-                "Tipo de repuesto",
-                "Modelo"
-            ]
-            df_down = df_rep[cols_download] if all(c in df_rep.columns for c in cols_download) else df_rep
             buf = io.BytesIO()
             with pd.ExcelWriter(buf, engine='openpyxl') as writer:
-                df_down.to_excel(writer, index=False, sheet_name='Repuestos')
+                df_rep.to_excel(writer, index=False, sheet_name='Repuestos')
             buf.seek(0)
             st.download_button(
                 label="Descargar repuestos",
@@ -212,7 +201,60 @@ elif pagina == "consulta":
         )
     repuestos = repuestos_df[repuestos_df['Código'] == sku].copy() if sku else repuestos_df.copy()
     repuestos_filtrados = filtrar_tabla(repuestos, criterio_rep, busqueda_rep, repuestos_df.columns)
-    st.dataframe(repuestos_filtrados, height=250)
+
+    # Grid con selección de repuestos
+    gb_rep = GridOptionsBuilder.from_dataframe(repuestos_filtrados)
+    gb_rep.configure_selection(selection_mode="single", use_checkbox=True)
+    grid_rep_response = AgGrid(
+        repuestos_filtrados,
+        gridOptions=gb_rep.build(),
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        height=250,
+        theme="material"
+    )
+
+    # Generación de PDF para repuesto seleccionado
+    selected_reps = grid_rep_response.get("selected_rows", [])
+    df_selected_reps = pd.DataFrame(selected_reps)
+    if not df_selected_reps.empty:
+        rep = df_selected_reps.iloc[0]
+        buf_pdf = io.BytesIO()
+        pdf = canvas.Canvas(buf_pdf)
+
+        # Encabezado con logo y títulos
+        width, height = 595, 842  # A4 en puntos
+        pdf.drawImage(logo_path, 50, height - 100, width=100, height=50, mask='auto')
+        pdf.setFont("Helvetica-Bold", 16)
+        pdf.drawString(180, height - 60, "Taller de Servicio SINSA")
+        pdf.setFont("Helvetica-Oblique", 12)
+        pdf.drawString(180, height - 80, "Silva Internacional S.A")
+        pdf.setFont("Helvetica", 12)
+        pdf.drawString(180, height - 100, "Hoja de detalle de repuesto")
+
+        # Tabla de datos del repuesto
+        x_col1, x_col2 = 50, 300
+        y_start = height - 140
+        row_height = 20
+        pdf.setFont("Helvetica", 10)
+        for idx, (field, valor) in enumerate(rep.items()):
+            y = y_start - idx * row_height
+            if y < 50:
+                pdf.showPage()
+                y = height - 50
+                pdf.setFont("Helvetica", 10)
+            pdf.drawString(x_col1, y, str(field))
+            pdf.drawString(x_col2, y, str(valor))
+
+        pdf.showPage()
+        pdf.save()
+        buf_pdf.seek(0)
+
+        st.download_button(
+            label="📄 Descargar Detalle Repuesto",
+            data=buf_pdf,
+            file_name=f"detalle_repuesto_{rep.get('Código Repuesto','')}.pdf",
+            mime="application/pdf"
+        )
 
 elif pagina == "admin":
     st.warning("Pantalla de administración aún no implementada.")
